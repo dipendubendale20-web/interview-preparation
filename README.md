@@ -27,7 +27,7 @@ Difficulty legend: 🟢 Basic · 🟡 Intermediate · 🔴 Advanced · ⚡ Scena
 | 09 | SQL (PostgreSQL / MySQL) | [09_SQL_PostgreSQL_MySQL.md](09_SQL_PostgreSQL_MySQL.md) | 124 | ✅ |
 | 10 | MongoDB | [10_MongoDB.md](10_MongoDB.md) | 120 | ✅ |
 | 11 | Redis | [11_Redis.md](11_Redis.md) | 120 | ✅ |
-| 12 | Python & FastAPI | [12_Python_FastAPI.md](12_Python_FastAPI.md) | – | ⏳ |
+| 12 | Python & FastAPI | [12_Python_FastAPI.md](12_Python_FastAPI.md) | 124 | ✅ |
 | 13 | Docker & CI/CD | [13_Docker_CICD.md](13_Docker_CICD.md) | – | ⏳ |
 | 14 | System Design | [14_System_Design.md](14_System_Design.md) | – | ⏳ |
 | 15 | Design Patterns | [15_Design_Patterns.md](15_Design_Patterns.md) | – | ⏳ |
