@@ -21,7 +21,7 @@ Difficulty legend: 🟢 Basic · 🟡 Intermediate · 🔴 Advanced · ⚡ Scena
 | 03 | Spring Boot | [03_Spring_Boot.md](03_Spring_Boot.md) | 114 | ✅ |
 | 04 | Spring Security | [04_Spring_Security.md](04_Spring_Security.md) | 120 | ✅ |
 | 05 | Spring Data JPA & Hibernate | [05_Spring_Data_JPA_Hibernate.md](05_Spring_Data_JPA_Hibernate.md) | 114 | ✅ |
-| 06 | Microservices & Spring Cloud | [06_Microservices_Spring_Cloud.md](06_Microservices_Spring_Cloud.md) | – | ⏳ |
+| 06 | Microservices & Spring Cloud | [06_Microservices_Spring_Cloud.md](06_Microservices_Spring_Cloud.md) | 108 | ✅ |
 | 07 | Apache Kafka | [07_Apache_Kafka.md](07_Apache_Kafka.md) | – | ⏳ |
 | 08 | IBM MQ & GCP Pub/Sub | [08_IBM_MQ_GCP_PubSub.md](08_IBM_MQ_GCP_PubSub.md) | – | ⏳ |
 | 09 | SQL (PostgreSQL / MySQL) | [09_SQL_PostgreSQL_MySQL.md](09_SQL_PostgreSQL_MySQL.md) | – | ⏳ |
