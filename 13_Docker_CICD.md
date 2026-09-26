@@ -496,3 +496,460 @@ The same source gives the same image, byte for byte (or at least functionally): 
 </details>
 
 ---
+## 3. Container Runtime: Networking, Storage, Resources
+
+> **Mental model:** At runtime, a container is a process with *borrowed* resources: a virtual network card, a filesystem that disappears on deletion unless you attach a volume, and CPU and memory **quotas**. Most production surprises come from forgetting that the quota, not the host, is the real limit.
+
+### Q35. 🟡 How does the JVM behave in containers?
+
+Java 8u191+ is **container-aware**: it reads the cgroup memory and CPU limits. Size the heap with `-XX:MaxRAMPercentage=70–75` instead of a hard `-Xmx`, and leave room for metaspace, thread stacks and direct buffers. Older Java 8 builds read the host's memory, then oversized their heap and got OOM-killed.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** Why is the heap limit below the container limit?
+
+**A:** Non-heap memory (metaspace, thread stacks, code cache, direct buffers, GC structures) also counts against the container's cgroup limit.
+</details>
+
+### Q36. 🟡 How do volumes, bind mounts and tmpfs differ?
+
+- A **volume** is managed by Docker and survives the container.
+- A **bind mount** maps a host path, which is handy for dev and brittle in production.
+- **tmpfs** is in memory, and its data is lost on stop.
+
+Data written to the container's writable layer is lost when the container is removed.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** Where do stateful services store data on Kubernetes?
+
+**A:** On PersistentVolumeClaims, usually through a StatefulSet. Managed databases are often better still.
+</details>
+
+### Q37. 🟡 How do CPU limits and throttling affect latency?
+
+CFS quotas pause a container that uses up its CPU quota within a period. JIT and GC bursts cause **throttling**, which shows up as latency spikes. Set sensible requests, set limits carefully (some teams avoid CPU limits for latency-sensitive services), and watch the throttling metrics.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** Which metric shows throttling?
+
+**A:** `container_cpu_cfs_throttled_seconds_total` (cAdvisor or Prometheus).
+</details>
+
+---
+
+## 4. Kubernetes for Backend Engineers
+
+> **Mental model:** Kubernetes is a *control loop*: you declare the desired state (3 replicas of image X, healthy and reachable), and controllers keep reconciling the actual state towards it. Pods are cattle, Services are stable addresses, and probes decide when traffic flows to a pod.
+
+```mermaid
+flowchart LR
+    Dep["Deployment (replicas: 3)"] --> RS["ReplicaSet"]
+    RS --> P1["Pod"]
+    RS --> P2["Pod"]
+    RS --> P3["Pod"]
+    Svc["Service (stable IP/DNS)"] --> P1
+    Svc --> P2
+    Svc --> P3
+    Ing["Ingress / Gateway"] --> Svc
+    CM["ConfigMap / Secret"] -.-> P1
+    HPA["HPA"] -.-> Dep
+```
+
+### Q38. 🟢 What are the core objects?
+
+- **Pod**: one or more containers sharing a network and volumes.
+- **Deployment**: stateless replicas with rolling updates.
+- **StatefulSet**: stable identities and storage.
+- **Service**: stable virtual IP and DNS, with load balancing.
+- **Ingress**: HTTP routing.
+- **ConfigMap / Secret**: configuration.
+- **Job / CronJob**: batch work.
+- **HPA**: autoscaling.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** Deployment or StatefulSet for a Kafka consumer?
+
+**A:** A Deployment, since consumers are stateless. A StatefulSet is useful if you want stable `group.instance.id` values for static membership.
+</details>
+
+### Q39. 🟡 What do liveness, readiness and startup probes do?
+
+- **Readiness**: failing removes the pod from the Service endpoints, and there's no restart.
+- **Liveness**: failing **restarts** the container. Keep it dependency-free.
+- **Startup**: protects slow-starting JVMs from being killed by liveness before they've finished booting.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: report-api
+spec:
+  replicas: 3
+  selector:
+    matchLabels: { app: report-api }
+  template:
+    metadata:
+      labels: { app: report-api }
+    spec:
+      terminationGracePeriodSeconds: 45
+      containers:
+        - name: app
+          image: asia-south1-docker.pkg.dev/proj/repo/report-api@sha256:abc123
+          ports: [{ containerPort: 8080 }]
+          resources:
+            requests: { cpu: "500m", memory: "1Gi" }
+            limits:   { memory: "1Gi" }
+          startupProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8080 }
+            failureThreshold: 30
+            periodSeconds: 5
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8080 }
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8080 }
+          lifecycle:
+            preStop:
+              exec: { command: ["sh", "-c", "sleep 10"] }
+          securityContext:
+            runAsNonRoot: true
+            allowPrivilegeEscalation: false
+```
+
+<details><summary>Cross-questions</summary>
+
+**Q:** Why the `preStop` sleep?
+
+**A:** Endpoint removal is asynchronous. The sleep lets load balancers stop routing to the pod before the app begins shutting down.
+</details>
+
+### Q40. 🟡 What do requests and limits mean, and what are QoS classes?
+
+**Requests** are used for scheduling (a guaranteed share). **Limits** are the maximum (memory above the limit means an OOM kill, and CPU above the limit means throttling). The QoS classes are Guaranteed (requests = limits), Burstable and BestEffort. Under node pressure, BestEffort pods are evicted first.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** Why set memory request = limit for JVM services?
+
+**A:** It gives predictable scheduling, and avoids surprise evictions or OOM kills when the node is under pressure.
+</details>
+
+### Q41. 🟡 How do ConfigMaps and Secrets work?
+
+They're injected as environment variables or mounted files. Secrets are only base64-encoded by default, so enable encryption at rest or use External Secrets or Secret Manager. Changing an env-var-based ConfigMap needs a pod restart to take effect.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** How do you trigger a rollout when config changes?
+
+**A:** Put a checksum of the config in a pod-template annotation (the Helm pattern), so changes roll the pods.
+</details>
+
+### Q42. 🟡 How does the HPA work?
+
+It scales the replica count on CPU or memory, or on custom and external metrics (requests per second, Kafka lag, Pub/Sub backlog through KEDA). Stabilisation windows prevent flapping.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** Why does CPU-based scaling fail for IO-bound consumers?
+
+**A:** Their CPU stays low while the backlog grows, so scale on lag or backlog age instead.
+</details>
+
+### Q43. 🟡 What is a PodDisruptionBudget?
+
+It limits how many pods can be voluntarily evicted at once (during node drains or upgrades), for example `minAvailable: 2`, which keeps capacity up during maintenance.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** Can a PDB block node upgrades?
+
+**A:** Yes, if it's too strict (for example `minAvailable` = replicas). Size it sensibly.
+</details>
+
+### Q44. 🟡 How do you debug a failing pod?
+
+`kubectl describe pod` (events, probe failures, OOMKilled), `kubectl logs [--previous]`, `kubectl exec` or an ephemeral debug container, `kubectl get events`, and a resource check with `kubectl top`.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** What does `ImagePullBackOff` mean?
+
+**A:** A wrong image name or tag, a missing digest, or no registry permissions for the node's service account.
+</details>
+
+---
+
+## 5. CI/CD Pipelines
+
+> **Mental model:** A pipeline is a *conveyor belt of increasingly expensive checks*. Fast, cheap checks come first (lint, unit tests), and slow, expensive ones later (integration tests, security scans, deploys). A red light anywhere stops the belt. The artifact is built **once** and promoted unchanged through the environments.
+
+```mermaid
+flowchart LR
+    C["Commit / PR"] --> B["Build + unit tests<br/>lint, static analysis"]
+    B --> I["Integration tests<br/>(Testcontainers)"]
+    I --> S["Security scans<br/>deps, image, secrets"]
+    S --> P["Build & push image<br/>(tag = git SHA, digest)"]
+    P --> D1["Deploy to staging"]
+    D1 --> T["Smoke / contract tests"]
+    T --> D2["Promote same digest to prod<br/>(canary → full)"]
+```
+
+### Q45. 🟢 CI vs continuous delivery vs continuous deployment?
+
+**CI** means every change is built and tested automatically. **Continuous delivery** means every green build is *deployable* (release is a button). **Continuous deployment** means every green build goes to production automatically.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** What must be in place before continuous deployment?
+
+**A:** Strong automated tests, observability, fast rollback, and feature flags.
+</details>
+
+### Q46. 🟡 What does a GitHub Actions pipeline for a Java 8 service look like?
+
+```yaml
+name: ci
+on:
+  pull_request:
+  push:
+    branches: [main]
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "8"
+          cache: maven
+      - name: Build and test
+        run: mvn -B verify
+      - name: Build image
+        if: github.ref == 'refs/heads/main'
+        run: docker build -t registry.example.com/report-api:${{ github.sha }} .
+```
+
+<details><summary>Cross-questions</summary>
+
+**Q:** How do you authenticate to a cloud from CI without long-lived keys?
+
+**A:** OIDC federation (GitHub → GCP Workload Identity Federation), which gives short-lived tokens with no stored secrets.
+</details>
+
+### Q47. 🟡 "Build once, deploy many": why?
+
+The exact artifact (the image digest) that passed the tests is the one that runs in staging and production. Rebuilding per environment risks differences in dependencies or base images.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** How does the environment config differ then?
+
+**A:** Through runtime configuration (ConfigMaps, secrets, env vars), not through a different image.
+</details>
+
+### Q48. 🟡 How do you keep pipelines fast?
+
+Cache dependencies (Maven, pip), run test jobs in parallel, use incremental builds, use the Docker layer cache, run only the affected modules in monorepos, and keep integration tests focused.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** What's a reasonable PR pipeline time?
+
+**A:** Under about 10–15 minutes. Slower pipelines push developers to batch changes, which increases risk.
+</details>
+
+### Q49. 🟡 Which quality and security gates do you add?
+
+Unit and integration tests, coverage trends (not a hard vanity number), static analysis (SpotBugs, Sonar, ruff), dependency scanning (OWASP Dependency-Check, pip-audit), secret scanning, image scanning, and SBOM plus signing.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** How do you keep flaky tests from blocking everyone?
+
+**A:** Track them, quarantine them with an owner and a deadline, and fix the root cause. Never just retry until green.
+</details>
+
+### Q50. 🟡 How do database migrations fit into CD?
+
+Flyway or Liquibase migrations run once per deploy (a Job or init step), are **backward compatible** (expand/contract), are reviewed like code, and are tested in CI against a real database.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** Why not run migrations on every pod's startup?
+
+**A:** Several pods could race. Use one controlled migration step, or rely on the tool's lock table.
+</details>
+
+---
+
+## 6. Deployment Strategies and GitOps
+
+> **Mental model:** A deployment strategy is *how you swap the engine while the plane is flying*: gradually (rolling), side by side (blue-green), or with a few passengers first (canary). GitOps means the desired state of the cluster lives in git, and a controller syncs it.
+
+### Q51. 🟡 Rolling vs blue-green vs canary?
+
+| | Rolling | Blue-green | Canary |
+|---|---|---|---|
+| How | Replace pods gradually | Two full envs, switch traffic | Small % first, then ramp |
+| Rollback | Roll back (minutes) | Instant switch | Shift traffic back |
+| Cost | Low | 2× capacity | Low–medium |
+| Needs | Readiness probes, compatibility | Env duplication | Metrics-based analysis |
+
+<details><summary>Cross-questions</summary>
+
+**Q:** What must hold for any strategy?
+
+**A:** The old and new versions must work at the same time with the same DB schema and events.
+</details>
+
+### Q52. 🟡 What is GitOps (Argo CD, Flux)?
+
+Manifests (Helm or Kustomize) live in git. A controller in the cluster pulls and reconciles them, and detects drift. Deploys and rollbacks become git commits and reverts, with a full audit trail.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** How does CI hand off to GitOps?
+
+**A:** CI builds and pushes the image, then opens a PR or commit that updates the image digest in the manifests repository.
+</details>
+
+### Q53. 🟡 What does Helm give you?
+
+Templated Kubernetes manifests (charts) with per-environment values, versioned releases, and `helm rollback`. The cost is the complexity of templates, so keep charts simple, or use Kustomize overlays.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** Helm or Kustomize?
+
+**A:** Helm for reusable, parameterised packages. Kustomize for simple overlays on plain YAML.
+</details>
+
+---
+
+## 7. Coding / Hands-on
+
+> **Mental model:** Hands-on DevOps questions are usually "write a Dockerfile", "write a probe config" or "write a pipeline". Show multi-stage builds, non-root users, the exec form, probes and immutable tags.
+
+### Q54. 🟡 How do you write a production Dockerfile for a FastAPI service?
+
+```dockerfile
+FROM python:3.11-slim AS build
+WORKDIR /w
+COPY requirements.txt .
+RUN pip install --no-cache-dir --prefix=/install -r requirements.txt
+
+FROM python:3.11-slim
+ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1
+WORKDIR /app
+COPY --from=build /install /usr/local
+COPY app/ app/
+RUN useradd --create-home app
+USER app
+EXPOSE 8080
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8080"]
+```
+
+<details><summary>Cross-questions</summary>
+
+**Q:** Why install into `/install` and copy it across?
+
+**A:** The build stage can contain compilers for building wheels, and the runtime image receives only the installed packages.
+</details>
+
+---
+
+## 8. Production Scenarios
+
+> **Mental model:** Container incidents usually come down to **limits** (OOMKilled, throttling), **probes** (restart loops, traffic sent too early), **signals** (no graceful shutdown), or **images** (a wrong tag, a missing permission). `kubectl describe` and the exit codes point to which one.
+
+### Q55. ⚡ Pods restart every few hours with exit code 137 and `OOMKilled`, but the JVM heap looks fine. Why?
+
+Container memory = heap + non-heap. The heap was set too close to the limit (or an old JVM ignored the limit entirely). **Fix:** use `MaxRAMPercentage` around 70–75, cap the threads and direct buffers, check native memory tracking, and raise the limit if the working set is legitimate.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** How do you tell this apart from a Java OOM?
+
+**A:** A Java OOM throws `OutOfMemoryError` in the logs (and a heap dump if configured). An OOMKill has no Java stack trace, just exit code 137.
+</details>
+
+### Q56. ⚡ Every deploy causes a burst of 502 and 503 errors for about 10 seconds. What do you fix?
+
+Add readiness probes (so no traffic reaches a pod before it's ready), a `preStop` sleep, graceful shutdown in the app (exec-form entrypoint so SIGTERM reaches it), `maxUnavailable: 0` with `maxSurge: 1`, and a startup probe for slow JVMs.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** Why can the shell form alone cause this?
+
+**A:** The shell doesn't forward SIGTERM, so the app is SIGKILLed mid-request at the end of the grace period.
+</details>
+
+### Q57. ⚡ Pods are stuck in `CrashLoopBackOff` right after a release. How do you respond?
+
+1. `kubectl logs --previous` and `describe`: look for a config error, missing secret, bad entrypoint or failed migration.
+2. **Roll back** to the previous digest (GitOps revert or `kubectl rollout undo`).
+3. Fix forward with a test that would have caught it.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** Why deploy by digest?
+
+**A:** Rollback then targets the exact previously running bytes.
+</details>
+
+### Q58. ⚡ A secret was found baked into an image layer. What do you do?
+
+1. Rotate the secret immediately.
+2. Delete the image tags and digests from the registry.
+3. Rebuild without it: use BuildKit secret mounts, `.dockerignore`, and runtime injection.
+4. Add secret and image scanning in CI.
+
+Removing the file in a later layer doesn't help, because it's still in the earlier layer.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** How do you check whether other images are affected?
+
+**A:** Scan the registry with a secret scanner (for example, trufflehog on the images), and check the build history for the same Dockerfile pattern.
+</details>
+
+---
+
+## 9. Cheat Sheet
+
+| Topic | Key facts |
+|---|---|
+| Container | Namespaces (see) + cgroups (use); shared kernel; exit 137 = SIGKILL/OOM, 143 = SIGTERM |
+| Image | Layers, cache invalidates everything after a change; deploy by digest, tag by git SHA |
+| Dockerfile | Multi-stage, deps before code, JRE/slim base, non-root, exec-form ENTRYPOINT, `.dockerignore` |
+| Secrets | Never ARG/ENV/COPY; BuildKit secret mounts; runtime injection |
+| JVM in containers | 8u191+ container-aware; `MaxRAMPercentage` ~75; leave non-heap headroom |
+| Kubernetes | Deployment/Service/Ingress; readiness vs liveness vs startup; requests vs limits; HPA; PDB |
+| Shutdown | SIGTERM → preStop → graceful shutdown within `terminationGracePeriodSeconds` |
+| CI/CD | Fast checks first; build once, promote the same digest; scans + SBOM + signing |
+| Deploys | Rolling / blue-green / canary; expand/contract migrations; GitOps rollbacks = git revert |
+
+---
+
+## 10. Revision Checklist
+
+- [ ] Explain containers vs VMs, namespaces and cgroups
+- [ ] Write a multi-stage Dockerfile for Java 8 and for FastAPI
+- [ ] Explain layer caching, the exec vs shell form, and ENTRYPOINT vs CMD
+- [ ] Size the JVM heap in containers, and explain OOMKilled vs Java OOM
+- [ ] Configure liveness, readiness and startup probes, plus preStop and graceful shutdown
+- [ ] Explain requests vs limits, CPU throttling, HPA and PDB
+- [ ] Design a CI pipeline with quality and security gates
+- [ ] Compare rolling, blue-green and canary deploys, and explain GitOps
+- [ ] Respond to CrashLoopBackOff and a leaked secret in an image
+
+---
+
+## 11. Beyond Java 8
+
+- **Java 17+ images** are more container-friendly by default (improved cgroup v2 support, CDS/AppCDS for faster startup). GraalVM native images give very fast startup.
+- **Kubernetes Gateway API** is replacing Ingress for richer routing, and **sidecar-less meshes** (Istio ambient) reduce the per-pod overhead.
