@@ -3,7 +3,7 @@
 **Why this matters in interviews:** Redis shows up in almost every backend design, as a cache, rate limiter, lock, leaderboard, session store or lightweight queue. Interviewers use it to test your grasp of **caching strategy** (invalidation, stampedes, TTLs), **atomicity** (single-threaded commands, Lua, transactions that don't roll back), and **operations** (eviction, persistence, failover, cluster hash slots). Your Redis caching work, the part of the 40% batch-time reduction that came from caching, fits right in.
 
 > [!NOTE]
-> Every `redis-cli` puzzle below was run on **Redis 7.0**. Java examples target **Java 8** with Jedis 3.8, Lettuce 6.1 and Spring Data Redis 2.7 (Boot 2.7). The runnable Java examples were executed against that Redis instance.
+> Every `redis-cli` puzzle below was run on **Redis 7.0**. Java examples target **Java 8** with Jedis 3.8, Lettuce 6.1 and Spring Data Redis 2.7 (Boot 2.7). The Java examples are compile-checked.
 
 Difficulty legend: 🟢 Basic · 🟡 Intermediate · 🔴 Advanced · ⚡ Scenario
 
@@ -1385,7 +1385,7 @@ Rarely. Asynchronous replication can lose acknowledged entries on failover, memo
 
 **Q:** When do you need a pool with Lettuce?
 
-**A:** For blocking commands (`BLPOP`), for `MULTI` / `WATCH` transactions that need dedicated connections, or at very high throughput with large payloads.
+**A:** For blocking commands (`BLPOP`), and for `MULTI` / `WATCH` transactions that need dedicated connections.
 </details>
 
 ### Q98. 🟡 How do you configure `RedisTemplate` with JSON serialisation?
@@ -1420,7 +1420,7 @@ public class RedisConfig {
 **A:** The default `JdkSerializationRedisSerializer` was used for keys. Always use `StringRedisSerializer` for keys (or `StringRedisTemplate`).
 </details>
 
-### Q99. 🟡 How do you configure `@Cacheable` with Redis TTLs per cache?
+### Q99. 🟡 How do you configure `@Cacheable` TTLs per cache?
 
 ```java
 import java.time.Duration;
@@ -1456,7 +1456,7 @@ public class CacheTtlConfig {
 
 ### Q100. 🟡 Which client timeouts and settings matter?
 
-The command timeout (`spring.redis.timeout`, for example 200–500 ms for cache calls), the connect timeout, pool sizes (Jedis, or Lettuce when pooled), cluster topology refresh (Lettuce: `spring.redis.lettuce.cluster.refresh.adaptive=true` and `period`), and SSL for managed Redis.
+The command timeout (`spring.redis.timeout`, for example 200–500 ms for cache calls), the connect timeout, pool sizes, cluster topology refresh (Lettuce: `spring.redis.lettuce.cluster.refresh.adaptive=true`), and TLS for managed Redis.
 
 <details><summary>Cross-questions</summary>
 
@@ -1491,7 +1491,7 @@ public class LockReleaser {
 
 **Q:** Does Spring resend the script text every time?
 
-**A:** `DefaultRedisScript` uses `EVALSHA` first, and falls back to `EVAL` when the script isn't cached on the server.
+**A:** No. It tries `EVALSHA` first, and falls back to `EVAL` if the script isn't cached on the server.
 </details>
 
 ### Q102. 🟡 How do you pipeline in Spring Data Redis?
@@ -1502,38 +1502,38 @@ public class LockReleaser {
 
 **Q:** What's the catch inside the callback?
 
-**A:** Results of individual commands are `null` inside the callback, because they're only available in the returned list afterwards.
+**A:** Individual command results are `null` inside the callback. They're only available in the list that's returned afterwards.
 </details>
 
 ### Q103. 🟡 How do you use Redis for HTTP sessions in Spring?
 
-Add `spring-session-data-redis` and `@EnableRedisHttpSession` (or Boot's auto-configuration with `spring.session.store-type=redis`). Sessions are stored as hashes with expiry, shared across instances, so no sticky sessions are needed. Index by principal name to support "log out all sessions".
+Add `spring-session-data-redis`, and let Boot auto-configure it (`spring.session.store-type=redis`). Sessions are stored as hashes with expiry and shared across instances, so no sticky sessions are needed.
 
 <details><summary>Cross-questions</summary>
 
-**Q:** Which eviction policy must the session Redis use?
+**Q:** Which eviction policy must a session Redis use?
 
-**A:** `noeviction`, or a volatile policy with TTLs on everything. Evicting live sessions logs users out randomly.
+**A:** `noeviction`, or a volatile policy with a TTL on everything. Evicting live sessions logs users out at random.
 </details>
 
-### Q104. 🟡 What does a transaction via `SessionCallback` look like in Spring?
+### Q104. 🟡 How do you run MULTI/EXEC correctly from Spring?
 
-`redisTemplate.execute(new SessionCallback<List<Object>>() { ... ops.multi(); ...; return ops.exec(); })`. That makes the `MULTI` / `EXEC` run on **one connection**. `redisTemplate.setEnableTransactionSupport(true)` binds to Spring transactions, but it's subtle (commands are queued until commit), so prefer Lua for atomic logic.
+Use `redisTemplate.execute(new SessionCallback<...>() { ... multi(); ...; return exec(); })`, which pins **one connection**. Calling `multi()` and `exec()` directly on the template may use different connections and fail. For atomic logic, prefer Lua.
 
 <details><summary>Cross-questions</summary>
 
-**Q:** Why can calling `multi()` and `exec()` directly on `RedisTemplate` fail?
+**Q:** What does `setEnableTransactionSupport(true)` do?
 
-**A:** Each template call may use a different connection, and `EXEC` without `MULTI` on that connection errors out. `SessionCallback` pins one connection.
+**A:** It binds Redis commands to the Spring transaction, queuing them until commit. It's subtle, because reads inside the transaction return null, so use it with care.
 </details>
 
 ---
 
 ## 8. Coding / Hands-on
 
-> **Mental model:** Redis coding questions come down to three idioms: **atomic single commands** (`INCR`, `SET NX PX`), **Lua for check-then-act**, and **pipelining for bulk work**. Everything below was run against Redis 7.0 at `127.0.0.1:6390` with Jedis.
+> **Mental model:** Redis coding comes down to three idioms: **atomic single commands** (`INCR`, `SET NX PX`), **Lua for check-then-act**, and **pipelining for bulk work**.
 
-### Q105. 🟡 How do you implement a distributed lock with a token and a safe release?
+### Q105. 🟡 How do you write a distributed lock with a token and a safe release?
 
 #### 🎯 Predict the output
 
@@ -1558,7 +1558,7 @@ public class TokenLock {
     }
 
     public static void main(String[] args) {
-        try (Jedis j = new Jedis("127.0.0.1", 6390)) {
+        try (Jedis j = new Jedis("127.0.0.1", 6379)) {
             j.del("lock:export");
             String a = acquire(j, "lock:export", 5000);
             String b = acquire(j, "lock:export", 5000);
@@ -1581,10 +1581,10 @@ true
 true
 ```
 
-The second acquire fails while A holds the lock. Releasing with the wrong token does nothing. A's release succeeds, and then the lock is free again.
+The second acquire fails while A holds the lock. Releasing with the wrong token does nothing. A's release succeeds, and the lock is then free again.
 </details>
 
-### Q106. 🟡 How do you implement a fixed-window rate limiter?
+### Q106. 🟡 How do you write a fixed-window rate limiter?
 
 ```java
 import java.util.Arrays;
@@ -1604,25 +1604,19 @@ public class FixedWindowLimiter {
                           Arrays.asList(String.valueOf(limit), String.valueOf(windowSec)));
         return Long.valueOf(1L).equals(r);
     }
-
-    public static void main(String[] args) {
-        try (Jedis j = new Jedis("127.0.0.1", 6390)) {
-            int allowed = 0;
-            for (int i = 0; i < 8; i++) if (allow(j, "device-42", 5, 60)) allowed++;
-            System.out.println("allowed=" + allowed);   // allowed=5 (unless the minute rolled over mid-loop)
-        }
-    }
 }
 ```
+
+With a limit of 5, eight quick calls allow 5 and reject 3 (unless the window rolls over mid-loop).
 
 <details><summary>Cross-questions</summary>
 
 **Q:** What's the weakness of a fixed window?
 
-**A:** A client can send `limit` requests at the end of one window and `limit` more at the start of the next, 2× in a short span. Sliding windows or a token bucket smooth that out.
+**A:** Bursts at the window edges: up to 2× the limit in a short span. A sliding window or token bucket fixes that.
 </details>
 
-### Q107. 🟡 How do you implement cache-aside with TTL jitter and negative caching?
+### Q107. 🟡 How do you write cache-aside with TTL jitter and negative caching?
 
 ```java
 import java.util.concurrent.ThreadLocalRandom;
@@ -1632,78 +1626,54 @@ import redis.clients.jedis.params.SetParams;
 
 public class CacheAside {
     static final String NULL_MARKER = "__NULL__";
-    static int dbCalls = 0;
 
     static String get(Jedis j, String key, Function<String, String> loader, int baseTtl) {
         String cached = j.get(key);
         if (cached != null) return NULL_MARKER.equals(cached) ? null : cached;
-        String value = loader.apply(key);
-        dbCalls++;
+        String value = loader.apply(key);                                              // DB call
         if (value == null) {
-            j.set(key, NULL_MARKER, SetParams.setParams().ex(30));                       // short negative TTL
+            j.set(key, NULL_MARKER, SetParams.setParams().ex(30));                     // short negative TTL
         } else {
-            int ttl = baseTtl + ThreadLocalRandom.current().nextInt(baseTtl / 10 + 1);   // jitter
+            int ttl = baseTtl + ThreadLocalRandom.current().nextInt(baseTtl / 10 + 1); // jitter
             j.set(key, value, SetParams.setParams().ex(ttl));
         }
         return value;
     }
-
-    public static void main(String[] args) {
-        try (Jedis j = new Jedis("127.0.0.1", 6390)) {
-            j.del("country:IN", "country:XX");
-            Function<String, String> db = k -> k.endsWith("IN") ? "India" : null;
-            for (int i = 0; i < 3; i++) { get(j, "country:IN", db, 600); get(j, "country:XX", db, 600); }
-            System.out.println("dbCalls=" + dbCalls + " ttl>=600:" + (j.ttl("country:IN") >= 600));
-        }
-    }
 }
 ```
-
-The output is `dbCalls=2 ttl>=600:true`: one database load for the existing key and one for the missing key. The next four reads were served from the cache, including the cached "not found".
 
 <details><summary>Cross-questions</summary>
 
 **Q:** What's still missing for a hot key under heavy concurrency?
 
-**A:** Single-flight on a miss (a per-key lock, or `@Cacheable(sync = true)` per JVM), so a hundred concurrent misses don't all hit the DB.
+**A:** Single-flight on a miss (a per-key lock), so a hundred concurrent misses don't all hit the DB.
 </details>
 
-### Q108. 🟡 How much does pipelining save compared with sequential calls?
+### Q108. 🟡 How do you use pipelining for bulk writes?
 
 ```java
 import redis.clients.jedis.Jedis;
 import redis.clients.jedis.Pipeline;
 
 public class PipelineDemo {
-    public static void main(String[] args) {
-        try (Jedis j = new Jedis("127.0.0.1", 6390)) {
-            int n = 5000;
-            long t0 = System.nanoTime();
-            for (int i = 0; i < n; i++) j.set("p:seq:" + i, "v");
-            long seq = System.nanoTime() - t0;
-
-            t0 = System.nanoTime();
-            Pipeline p = j.pipelined();
-            for (int i = 0; i < n; i++) p.set("p:pipe:" + i, "v");
-            p.sync();
-            long pipe = System.nanoTime() - t0;
-
-            System.out.println("pipeline faster: " + (pipe < seq));
-        }
+    static void bulkSet(Jedis j, int n) {
+        Pipeline p = j.pipelined();
+        for (int i = 0; i < n; i++) p.set("p:" + i, "v");
+        p.sync();                       // one flush, n replies read together
     }
 }
 ```
 
-It prints `pipeline faster: true`, even on localhost. Over a real network with 0.5–1 ms round trips, the gap grows to 10–100×.
+With a 1 ms round trip, 5,000 sequential `SET`s spend about 5 s waiting on the network. Pipelined, it's a handful of round trips.
 
 <details><summary>Cross-questions</summary>
 
 **Q:** Is a pipeline atomic?
 
-**A:** No. Other clients' commands can interleave. Use `MULTI` inside the pipeline, or Lua, if you need atomicity.
+**A:** No. Wrap it in `MULTI`, or use Lua, if you need atomicity.
 </details>
 
-### Q109. 🟡 How do you compute the top K devices by event count?
+### Q109. 🟡 How do you get the top K devices by event count?
 
 ```text
 ZINCRBY device:events:2024-03-01 1 d7      # per event
@@ -1713,12 +1683,12 @@ ZREVRANGE device:events:2024-03-01 0 9 WITHSCORES   # top 10
 
 <details><summary>Cross-questions</summary>
 
-**Q:** How do you get a weekly top 10 from the daily keys?
+**Q:** How do you get a weekly top 10?
 
 **A:** `ZUNIONSTORE device:events:week 7 <day keys...>`, then `ZREVRANGE`.
 </details>
 
-### Q110. 🟡 How do you implement a sliding-log rate limiter with a ZSET?
+### Q110. 🟡 How do you write a sliding-log rate limiter with a ZSET?
 
 ```text
 -- KEYS[1]=rl:{client}  ARGV[1]=now_ms  ARGV[2]=window_ms  ARGV[3]=limit  ARGV[4]=unique_member
@@ -1734,141 +1704,126 @@ return 1
 
 **Q:** Why does each request need a unique member?
 
-**A:** ZSET members are unique. Two requests in the same millisecond with the same member would collapse into one entry.
+**A:** ZSET members are unique, so two requests in the same millisecond would collapse into one entry.
 </details>
 
 ---
 
 ## 9. Production Scenarios
 
-> **Mental model:** When Redis is involved in an incident, ask: **is Redis slow** (big keys, slow commands, fork, CPU), **is Redis full** (evictions, OOM errors), **is Redis gone** (failover, network), or **is the cache wrong** (stale data, a stampede)? Each has a distinct signature in `INFO`, `SLOWLOG` and the application metrics.
+> **Mental model:** Ask whether Redis is **slow** (big keys, O(N) commands, fork), **full** (evictions, OOM), **gone** (failover, network), or whether **the cache is wrong** (stale data, a stampede). Each has its own signature in `INFO`, `SLOWLOG` and the app metrics.
 
-### Q111. ⚡ The database CPU spikes to 100% every day at the same time. Redis looks healthy. What's happening?
+### Q111. ⚡ The DB CPU spikes to 100% at the same time every day, and Redis looks healthy. What's happening?
 
-It's a **cache avalanche**: a batch warm-up or deploy set many keys with the **same TTL**, and they expire together, so misses flood the database. **Fix:** TTL jitter, refresh-ahead for hot keys, single-flight on misses, and a DB circuit breaker or bulkhead. Verify by correlating the miss-rate spikes with key creation times.
-
-<details><summary>Cross-questions</summary>
-
-**Q:** How did you confirm it in practice?
-
-**A:** The Redis `keyspace_misses` rate and the DB query rate spiked together at the same wall-clock time every day, which matched the batch that populated the cache 24 hours earlier.
-</details>
-
-### Q112. ⚡ Redis latency jumps to hundreds of ms for everyone, periodically. What do you check?
-
-1. `SLOWLOG GET` for O(N) commands (`KEYS`, `HGETALL` on huge hashes, `DEL` of big keys, `SMEMBERS`).
-2. `latest_fork_usec` during RDB or AOF rewrites (big dataset, THP enabled).
-3. Big-key reads saturating the network.
-4. Expiring many keys at once.
-5. The host CPU (steal time) or swapping.
-
-**Fix:** remove the O(N) calls (use `SCAN` / `UNLINK`), split big keys, tune persistence (or move it to replicas), and disable THP.
+It's a **cache avalanche**: a warm-up or batch set many keys with the same TTL, and they all expire together. **Fix:** TTL jitter, refresh-ahead for hot keys, single-flight on misses, and a DB circuit breaker. Confirm it by correlating the miss-rate spikes with key creation times.
 
 <details><summary>Cross-questions</summary>
 
-**Q:** Which command did we find most often?
+**Q:** Which metrics prove it?
 
-**A:** A `KEYS pattern*` in an admin or cleanup job, or `@CacheEvict(allEntries = true)` scanning a huge cache.
+**A:** `keyspace_misses` and the DB query rate spiking together at the same wall-clock time every day.
 </details>
 
-### Q113. ⚡ Writes fail with "OOM command not allowed when used memory > 'maxmemory'". Why?
+### Q112. ⚡ Redis latency periodically jumps for everyone. What do you check?
 
-The policy is `noeviction` (the default), or `volatile-*` with keys that have **no TTLs**, and memory is full. **Fix:** for caches, `allkeys-lru` or `lfu` plus TTLs everywhere. Find the keys without TTLs (`SCAN` + `TTL`, or `--memkeys`), and increase memory or shard if the data set legitimately grew.
+`SLOWLOG GET` (for `KEYS`, huge `HGETALL`, `DEL` of big keys), `latest_fork_usec` during persistence, big-key network saturation, and host CPU or swap. **Fix:** use `SCAN` / `UNLINK`, split big keys, tune persistence, and disable THP.
 
 <details><summary>Cross-questions</summary>
 
-**Q:** Why keep `noeviction` on some instances deliberately?
+**Q:** Which offender is the most common?
 
-**A:** Locks, rate-limit counters, queues and sessions shouldn't silently disappear. Put them on a separate instance from the cache.
+**A:** A `KEYS pattern*` in a cleanup job, or `@CacheEvict(allEntries = true)` on a huge cache.
 </details>
 
-### Q114. ⚡ After a Redis failover, two pods ran the same "exactly once per day" job. Why?
+### Q113. ⚡ Writes fail with "OOM command not allowed". Why?
 
-The lock key was written to the old primary, the primary failed before replicating it, and the promoted replica didn't have it. The second pod acquired the "same" lock. **Fix:** make the job **idempotent**, record the job run durably (a DB unique key on job + date), and don't rely on a Redis lock alone for correctness.
+The policy is `noeviction` (the default), or `volatile-*` with keys that have no TTL, and memory is full. **Fix:** `allkeys-lru` or `lfu` plus TTLs for caches, find the immortal keys, and scale if the data really grew.
 
 <details><summary>Cross-questions</summary>
 
-**Q:** Would `WAIT 1 100` after acquiring the lock help?
+**Q:** Why keep `noeviction` deliberately on some instances?
 
-**A:** It reduces the window, but doesn't eliminate it. The durable DB record is the real guard.
+**A:** Locks, rate limits, queues and sessions mustn't disappear silently. Keep them on a separate instance from the cache.
 </details>
 
-### Q115. ⚡ Users sometimes see outdated report status after it changes. How do you diagnose and fix it?
+### Q114. ⚡ After a failover, two pods ran the same once-a-day job. Why?
 
-Likely causes: the cache-aside **race** (a stale read repopulating the key after invalidation), missing invalidation on some update paths, or long TTLs. **Fix:** invalidate after the commit on every write path (centralise it in the service or through CDC events), use delayed double-delete or versioned values, and shorten the TTL for status keys (or don't cache them at all).
+The lock key hadn't replicated before the primary died, so the new primary didn't have it. **Fix:** make the job idempotent, and record the run durably (a DB unique key on job + date). A Redis lock alone isn't a correctness guarantee.
 
 <details><summary>Cross-questions</summary>
 
-**Q:** Should a rapidly changing "status" be cached?
+**Q:** Does `WAIT` fix it?
 
-**A:** Often not. Cache static metadata. Serve the status from the DB (indexed) or push updates (WebSocket or SSE).
+**A:** It narrows the window, but doesn't close it.
 </details>
 
-### Q116. ⚡ A slow Redis makes the whole API slow, even for endpoints that could work without the cache. What do you change?
+### Q115. ⚡ Users sometimes see an outdated report status. How do you fix it?
 
-Set short Redis command timeouts, add a circuit breaker around cache calls (open → skip the cache, go to the DB, protected by a bulkhead), and use a separate client or pool for non-critical Redis usage. Treat the cache as **optional** in the code paths.
+It's the cache-aside race or missed invalidations. Invalidate after the commit on every write path (centralised, or through CDC), use delayed double-delete or versioned values, use short TTLs for status keys, or don't cache fast-changing status at all.
 
 <details><summary>Cross-questions</summary>
 
-**Q:** What's the risk of the fallback?
+**Q:** Should a rapidly changing status be cached?
 
-**A:** DB overload. Limit concurrency to the DB during a cache outage, and serve stale data from L1 where you can.
+**A:** Usually not. Cache the static metadata, and serve the status from the indexed DB.
 </details>
 
-### Q117. ⚡ The Redis cluster reports `CROSSSLOT` errors after migrating from standalone. Why?
+### Q116. ⚡ A slow Redis makes the whole API slow. What do you change?
 
-Multi-key commands (`MGET`, `MSET`, transactions, Lua) touch keys in **different slots**. Standalone Redis didn't care. **Fix:** add hash tags to keys that must be operated on together (`{user:42}:...`), or split the operations per key. Let the client (Lettuce) fan out `MGET` per slot where atomicity isn't needed.
+Short command timeouts, a circuit breaker around cache calls (skip the cache and go to the DB behind a bulkhead), and treating the cache as optional in the code paths.
 
 <details><summary>Cross-questions</summary>
 
-**Q:** What's the risk of fixing everything with one hash tag?
+**Q:** What's the fallback's risk?
 
-**A:** Every key lands on one slot and node, which is a hot shard with no scaling.
+**A:** DB overload. Limit concurrency and serve stale data from L1 where possible.
 </details>
 
-### Q118. ⚡ Memory usage keeps growing even though the cache has TTLs. What's leaking?
+### Q117. ⚡ `CROSSSLOT` errors appear after moving to Redis Cluster. Why?
 
-Possible causes:
-
-- Keys written through a path that uses `SET` without `EX` (which clears the TTL, Q14).
-- Negative-cache or lock keys without an expiry.
-- A growing Stream without `MAXLEN` trimming.
-- Sets or ZSETs used for dedupe that are never trimmed.
-- Client output buffers (slow subscribers).
-- Fragmentation.
-
-Audit with `--bigkeys`, `MEMORY USAGE`, and scans for `TTL == -1`.
+Multi-key commands touch different slots. **Fix:** hash-tag the keys that belong together (`{user:42}:...`), or split the operations. Don't put everything under one tag, because that creates a hot shard.
 
 <details><summary>Cross-questions</summary>
 
-**Q:** How do you stop immortal keys at the source?
+**Q:** Can the client help?
 
-**A:** Use a shared cache helper that **always** sets a TTL (reject writes without one), and code review rules against raw `SET`.
+**A:** Lettuce can fan `MGET` out per slot when atomicity isn't needed.
 </details>
 
-### Q119. ⚡ Mobile clients hammer an endpoint after an app bug, and the Redis rate limiter itself becomes the bottleneck. What do you do?
+### Q118. ⚡ Memory keeps growing despite TTLs. What's leaking?
 
-Move coarse rate limiting to the **edge** (API gateway, Cloud Armor or a CDN) by IP and API key. Keep Redis limits for fine-grained per-user logic. Use cheaper algorithms (fixed window with `INCR`), pipeline the checks, and shard the limiter keys. Short-circuit known-bad app versions at the gateway.
+`SET` without `EX` clearing TTLs, lock or negative-cache keys without an expiry, untrimmed Streams or dedupe sets, slow-client output buffers, or fragmentation. Audit with `--bigkeys`, `MEMORY USAGE`, and scans for `TTL == -1`.
 
 <details><summary>Cross-questions</summary>
 
-**Q:** Why is the edge better for floods?
+**Q:** How do you stop immortal keys?
 
-**A:** It rejects the traffic before it consumes app threads, Redis capacity or database resources.
+**A:** A shared cache helper that always sets a TTL, plus code-review rules against raw `SET`.
 </details>
 
-### Q120. ⚡ Reference-data caching during the 200K-record batch showed a 99% hit ratio, but the job didn't get faster. Why?
+### Q119. ⚡ An app bug floods an endpoint, and the Redis rate limiter becomes the bottleneck. What do you do?
 
-The bottleneck was elsewhere. Every record still made a **separate Redis round trip** (200K × about 1 ms is roughly 200 s), or the job was bound by DB writes. **Fix:** batch the cache reads (`MGET` or a pipeline per chunk), or hold the small reference set in an in-process map for the job's lifetime. Then profile the write path (JDBC batching). Measure where the time goes before optimising.
+Rate-limit coarsely at the **edge** (gateway, Cloud Armor), keep the fine-grained per-user limits in Redis, use cheap algorithms, and block known-bad app versions at the gateway.
+
+<details><summary>Cross-questions</summary>
+
+**Q:** Why is the edge better?
+
+**A:** It rejects traffic before it uses app threads, Redis or the database.
+</details>
+
+### Q120. ⚡ Reference-data caching in the 200K-record batch had a 99% hit ratio, but the job wasn't faster. Why?
+
+Every record still made a **separate Redis round trip** (200K × about 1 ms is roughly 200 s), or the real bottleneck was the DB writes. **Fix:** batch the cache reads (`MGET` or a pipeline per chunk), or keep the small reference set in an in-process map for the job, then profile the write path (JDBC batching).
 
 > [!TIP]
-> This is a strong story for interviews: "A high hit ratio isn't the same as a fast system. Round trips and the real bottleneck matter more."
+> Interview line: "A high hit ratio isn't the same as a fast system. Round trips and the real bottleneck matter more."
 
 <details><summary>Cross-questions</summary>
 
-**Q:** How would you find the real bottleneck?
+**Q:** How do you find the real bottleneck?
 
-**A:** Time each stage per chunk (read, enrich, write), add metrics, and use async-profiler. The biggest stage gets optimised first.
+**A:** Time each stage per chunk (read, enrich, write), and profile. Optimise the biggest stage first.
 </details>
 
 ---
@@ -1877,47 +1832,46 @@ The bottleneck was elsewhere. Every record still made a **separate Redis round t
 
 | Topic | Key facts |
 |---|---|
-| Why fast | In-memory, single-threaded execution (atomic commands), efficient encodings, IO multiplexing (+IO threads 6.0) |
+| Why fast | In-memory, single-threaded execution (atomic commands), efficient encodings, IO multiplexing |
 | Types | String, Hash, List, Set, ZSET, Stream, HLL, Bitmap, Geo |
-| TTL gotchas | `SET` clears TTL (use `EX`/`KEEPTTL`); modifying hash/list keeps TTL; `TTL` -2 missing, -1 no expiry |
-| Locks | `SET key token NX PX ms`; release via Lua compare-and-delete; fencing tokens for correctness |
-| Transactions | MULTI/EXEC no interleaving, **no rollback** (verified); WATCH = optimistic CAS |
-| Lua | Atomic check-then-act; keys via KEYS[] (cluster); keep short |
+| TTL gotchas | `SET` clears TTL (use `EX`/`KEEPTTL`); hash/list edits keep TTL; `TTL` -2 missing, -1 none |
+| Locks | `SET key token NX PX`; Lua compare-and-delete release; fencing tokens for correctness |
+| Transactions | MULTI/EXEC: no interleaving, **no rollback**; WATCH = optimistic CAS |
+| Lua | Atomic check-then-act; KEYS[] for cluster routing; keep short |
 | Pipelining | Fewer round trips; not atomic |
-| Eviction | Default `noeviction`, `maxmemory 0`; caches → `allkeys-lru/lfu`; LRU is approximate |
-| Memory traps | Big keys (UNLINK, split), hot keys (L1 cache), immortal keys, fork headroom |
-| Persistence | RDB snapshots vs AOF (`everysec` ≈ 1 s loss); async replication loses acked writes on failover |
-| HA | Sentinel (≥3) for failover; Cluster = 16384 slots, CRC16, MOVED/ASK, hash tags `{…}` |
-| Caching | Cache-aside + delete-after-commit; TTL + jitter; stampede (single-flight), penetration (negative cache/Bloom), avalanche (jitter, breaker) |
-| Rate limiting | Fixed window INCR+EXPIRE, sliding log ZSET, token bucket in Lua |
-| Messaging | Pub/Sub fire-and-forget; Streams with groups, PEL, XACK, XAUTOCLAIM |
-| Spring | Lettuce default; StringRedisSerializer keys + JSON values; RedisCacheManager has no TTL by default; short timeouts + breaker |
+| Eviction | Default `noeviction`, `maxmemory 0`; caches → `allkeys-lru/lfu` |
+| Memory traps | Big keys (UNLINK/split), hot keys (L1), immortal keys, fork headroom |
+| Persistence/HA | RDB vs AOF (`everysec` ≈ 1 s); async replication loses acked writes; Sentinel ≥ 3 |
+| Cluster | 16384 slots, CRC16, MOVED/ASK, hash tags `{…}`, CROSSSLOT |
+| Caching | Cache-aside + delete-after-commit; TTL + jitter; stampede/penetration/avalanche fixes |
+| Rate limiting | INCR+EXPIRE window, ZSET sliding log, Lua token bucket |
+| Messaging | Pub/Sub fire-and-forget; Streams with groups, PEL, XACK |
+| Spring | Lettuce default; String keys + JSON values; RedisCacheManager no TTL by default |
 
 ---
 
 ## 11. Revision Checklist
 
-- [ ] Explain why Redis is fast and what "single-threaded" really means
-- [ ] Pick the right data structure for counters, leaderboards, queues, dedupe and unique counts
-- [ ] Solve the TTL puzzles (`SET` clears TTL, hash updates keep it)
-- [ ] Explain the eviction policies and the defaults, and choose one for a cache vs a lock store
-- [ ] Find and fix big keys and hot keys
-- [ ] Compare RDB and AOF, and explain replication and failover data loss
-- [ ] Explain Cluster hash slots, MOVED/ASK, hash tags and CROSSSLOT
-- [ ] Implement cache-aside with invalidation after commit, jitter and negative caching
-- [ ] Explain stampede, penetration and avalanche, with their fixes
-- [ ] Explain the cache-DB race and its mitigations
-- [ ] Explain the MULTI/EXEC no-rollback behaviour, WATCH, and Lua atomicity
-- [ ] Implement a token lock with a safe release, and explain fencing tokens and Redlock
-- [ ] Implement fixed-window and sliding-log rate limiters
+- [ ] Explain why Redis is fast and what "single-threaded" means
+- [ ] Choose data structures for counters, leaderboards, queues, dedupe and unique counts
+- [ ] Solve the TTL puzzles
+- [ ] Choose eviction policies for a cache vs a lock store
+- [ ] Explain big keys and hot keys, and their fixes
+- [ ] Compare RDB and AOF, and explain failover data loss
+- [ ] Explain Cluster hash slots and hash tags
+- [ ] Implement cache-aside with jitter and negative caching
+- [ ] Explain stampede, penetration and avalanche, and the cache-DB race
+- [ ] Explain MULTI/EXEC (no rollback), WATCH and Lua
+- [ ] Implement a token lock and explain fencing and Redlock
+- [ ] Implement two rate limiters
 - [ ] Compare Pub/Sub, Streams and Kafka
 - [ ] Configure Spring Data Redis serialisers, TTLs and timeouts
-- [ ] Tell the "99% hit ratio but not faster" batch story
+- [ ] Tell the "99% hit ratio but not faster" story
 
 ---
 
 ## 12. Beyond Java 8
 
-- **Redis 7.2–7.4 / 8.x:** listpack encoding everywhere, per-field hash expiry (`HEXPIRE`, 7.4), client-side caching improvements, and Redis 8 bundling query, JSON and time-series capabilities into the core distribution. Licensing changed in 2024, which led to the **Valkey** fork (Linux Foundation). Many clouds now offer Valkey-compatible services.
-- **Spring Data Redis 3.x** (Boot 3, Java 17): the `spring.data.redis.*` property prefix (instead of `spring.redis.*`), and Micrometer observation.
-- **Jedis 4/5 and Lettuce 6.2+** raised their minimum Java versions in later releases, so pin Java 8-compatible versions.
+- **Redis 7.4+ / 8.x:** per-field hash TTL (`HEXPIRE`), and query, JSON and time-series features in the core distribution. The 2024 licence change led to the **Valkey** fork, and many clouds now offer Valkey-compatible services.
+- **Spring Data Redis 3.x** (Boot 3): the `spring.data.redis.*` property prefix.
+- **Newer Jedis and Lettuce** releases raised their minimum Java versions, so pin Java 8-compatible versions.
