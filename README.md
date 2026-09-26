@@ -25,7 +25,7 @@ Difficulty legend: 🟢 Basic · 🟡 Intermediate · 🔴 Advanced · ⚡ Scena
 | 07 | Apache Kafka | [07_Apache_Kafka.md](07_Apache_Kafka.md) | 122 | ✅ |
 | 08 | IBM MQ & GCP Pub/Sub | [08_IBM_MQ_GCP_PubSub.md](08_IBM_MQ_GCP_PubSub.md) | 120 | ✅ |
 | 09 | SQL (PostgreSQL / MySQL) | [09_SQL_PostgreSQL_MySQL.md](09_SQL_PostgreSQL_MySQL.md) | 124 | ✅ |
-| 10 | MongoDB | [10_MongoDB.md](10_MongoDB.md) | – | ⏳ |
+| 10 | MongoDB | [10_MongoDB.md](10_MongoDB.md) | 120 | ✅ |
 | 11 | Redis | [11_Redis.md](11_Redis.md) | – | ⏳ |
 | 12 | Python & FastAPI | [12_Python_FastAPI.md](12_Python_FastAPI.md) | – | ⏳ |
 | 13 | Docker & CI/CD | [13_Docker_CICD.md](13_Docker_CICD.md) | – | ⏳ |
