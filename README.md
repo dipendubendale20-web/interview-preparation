@@ -19,7 +19,7 @@ Difficulty legend: 🟢 Basic · 🟡 Intermediate · 🔴 Advanced · ⚡ Scena
 | 01 | Core Java | [01_Core_Java.md](01_Core_Java.md) | 134 | ✅ |
 | 02 | Multithreading & Concurrency | [02_Multithreading_Concurrency.md](02_Multithreading_Concurrency.md) | 116 | ✅ |
 | 03 | Spring Boot | [03_Spring_Boot.md](03_Spring_Boot.md) | 114 | ✅ |
-| 04 | Spring Security | [04_Spring_Security.md](04_Spring_Security.md) | – | ⏳ |
+| 04 | Spring Security | [04_Spring_Security.md](04_Spring_Security.md) | 120 | ✅ |
 | 05 | Spring Data JPA & Hibernate | [05_Spring_Data_JPA_Hibernate.md](05_Spring_Data_JPA_Hibernate.md) | – | ⏳ |
 | 06 | Microservices & Spring Cloud | [06_Microservices_Spring_Cloud.md](06_Microservices_Spring_Cloud.md) | – | ⏳ |
 | 07 | Apache Kafka | [07_Apache_Kafka.md](07_Apache_Kafka.md) | – | ⏳ |
