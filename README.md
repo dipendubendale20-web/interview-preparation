@@ -16,7 +16,7 @@ Difficulty legend: 🟢 Basic · 🟡 Intermediate · 🔴 Advanced · ⚡ Scena
 
 | # | Topic | Notes | Questions | Status |
 |---|-------|-------|-----------|--------|
-| 01 | Core Java | [01_Core_Java.md](01_Core_Java.md) | – | ⏳ |
+| 01 | Core Java | [01_Core_Java.md](01_Core_Java.md) | 134 | ✅ |
 | 02 | Multithreading & Concurrency | [02_Multithreading_Concurrency.md](02_Multithreading_Concurrency.md) | – | ⏳ |
 | 03 | Spring Boot | [03_Spring_Boot.md](03_Spring_Boot.md) | – | ⏳ |
 | 04 | Spring Security | [04_Spring_Security.md](04_Spring_Security.md) | – | ⏳ |
